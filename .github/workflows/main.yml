@@ -1,0 +1,186 @@
+name: ML Training Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.9'
+
+jobs:
+  train-model:
+    name: Train ML Model
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy scikit-learn mlflow joblib matplotlib seaborn optuna
+      
+      - name: Fetch and Prepare Data
+        run: |
+          mkdir -p MLProject/winequality_preprocessing
+          python << 'PYTHON_SCRIPT'
+          import pandas as pd
+          import numpy as np
+          from sklearn.model_selection import train_test_split
+          from sklearn.preprocessing import StandardScaler
+          import os
+
+          print("="*50)
+          print("STEP 1: Fetching data from UCI repository...")
+          print("="*50)
+
+          RED_URL = 'https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv'
+          WHITE_URL = 'https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv'
+
+          df_red = pd.read_csv(RED_URL, sep=';')
+          df_white = pd.read_csv(WHITE_URL, sep=';')
+
+          df_red['wine_type'] = 0
+          df_white['wine_type'] = 1
+
+          df = pd.concat([df_red, df_white], ignore_index=True)
+          print(f"Total samples: {len(df)}")
+
+          print("\n" + "="*50)
+          print("STEP 2: Preprocessing data...")
+          print("="*50)
+
+          # Remove duplicates
+          df = df.drop_duplicates()
+          print(f"After removing duplicates: {len(df)}")
+
+          # Split features and target
+          X = df.drop('quality', axis=1)
+          y = df['quality']
+
+          # Train-test split
+          X_train, X_test, y_train, y_test = train_test_split(
+              X, y, test_size=0.2, random_state=42, stratify=y
+          )
+
+          # Scale features
+          scaler = StandardScaler()
+          X_train_scaled = pd.DataFrame(
+              scaler.fit_transform(X_train),
+              columns=X_train.columns
+          )
+          X_test_scaled = pd.DataFrame(
+              scaler.transform(X_test),
+              columns=X_test.columns
+          )
+
+          # Save to CSV
+          output_dir = 'MLProject/winequality_preprocessing'
+          X_train_scaled.to_csv(f'{output_dir}/X_train.csv', index=False)
+          X_test_scaled.to_csv(f'{output_dir}/X_test.csv', index=False)
+          pd.DataFrame({'quality': y_train}).to_csv(f'{output_dir}/y_train.csv', index=False)
+          pd.DataFrame({'quality': y_test}).to_csv(f'{output_dir}/y_test.csv', index=False)
+
+          print(f"\nData saved to {output_dir}/")
+          print(f"  X_train: {X_train_scaled.shape}")
+          print(f"  X_test: {X_test_scaled.shape}")
+          PYTHON_SCRIPT
+      
+      - name: Train Model with MLflow
+        run: |
+          cd MLProject
+          python << 'PYTHON_SCRIPT'
+          import pandas as pd
+          import numpy as np
+          from sklearn.ensemble import RandomForestRegressor
+          from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+          import mlflow
+          import mlflow.sklearn
+
+          print("="*50)
+          print("STEP 3: Training Model with MLflow")
+          print("="*50)
+
+          # Load data
+          X_train = pd.read_csv('winequality_preprocessing/X_train.csv')
+          X_test = pd.read_csv('winequality_preprocessing/X_test.csv')
+          y_train = pd.read_csv('winequality_preprocessing/y_train.csv')['quality']
+          y_test = pd.read_csv('winequality_preprocessing/y_test.csv')['quality']
+
+          print(f"Training samples: {len(X_train)}")
+          print(f"Test samples: {len(X_test)}")
+
+          # Set experiment
+          mlflow.set_experiment('wine-quality-ci')
+
+          # Enable autolog
+          mlflow.sklearn.autolog()
+
+          with mlflow.start_run(run_name='ci-training-run'):
+              # Train model
+              model = RandomForestRegressor(
+                  n_estimators=100,
+                  max_depth=10,
+                  min_samples_split=5,
+                  random_state=42,
+                  n_jobs=-1
+              )
+              
+              print("\nTraining RandomForestRegressor...")
+              model.fit(X_train, y_train)
+              
+              # Predict
+              y_pred = model.predict(X_test)
+              
+              # Calculate metrics
+              rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+              mae = mean_absolute_error(y_test, y_pred)
+              r2 = r2_score(y_test, y_pred)
+              
+              print("\n" + "="*50)
+              print("TRAINING RESULTS")
+              print("="*50)
+              print(f"  RMSE: {rmse:.4f}")
+              print(f"  MAE:  {mae:.4f}")
+              print(f"  R2:   {r2:.4f}")
+
+          mlflow.sklearn.autolog(disable=True)
+          print("\n[SUCCESS] Model training completed!")
+          PYTHON_SCRIPT
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-artifacts
+          path: |
+            MLProject/mlruns/
+            MLProject/winequality_preprocessing/
+          retention-days: 7
+      
+      - name: Training Summary
+        run: |
+          echo "========================================"
+          echo "        ML TRAINING COMPLETED          "
+          echo "========================================"
+          echo ""
+          echo "Workflow: ML Training Pipeline"
+          echo "Author: Syifa Fauziah"
+          echo "Repository: https://github.com/syfauziah/Workflow-CI"
+          echo ""
+          echo "Artifacts saved:"
+          echo "  - MLflow runs"
+          echo "  - Preprocessed data"
+          echo "========================================"
