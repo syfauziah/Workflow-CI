@@ -1,0 +1,27 @@
+name: wine-quality-mlops
+
+conda_env: conda.yaml
+
+entry_points:
+  main:
+    parameters:
+      data_dir: {type: str, default: "winequality_preprocessing"}
+      experiment_name: {type: str, default: "wine-quality-training"}
+      model_type: {type: str, default: "random_forest"}
+      compare_models: {type: bool, default: false}
+    command: "python modelling.py --data-dir {data_dir} --experiment-name {experiment_name} --model-type {model_type} {compare_models}"
+
+  tune:
+    parameters:
+      data_dir: {type: str, default: "winequality_preprocessing"}
+      experiment_name: {type: str, default: "wine-quality-tuning"}
+      model_type: {type: str, default: "random_forest"}
+      n_trials: {type: int, default: 50}
+    command: "python modelling_tuning.py --data-dir {data_dir} --experiment-name {experiment_name} --model-type {model_type} --n-trials {n_trials}"
+
+  preprocess:
+    parameters:
+      source: {type: str, default: "uci"}
+      output_dir: {type: str, default: "winequality_preprocessing"}
+      test_size: {type: float, default: 0.2}
+    command: "python automate_Syifa_Fauziah.py --source {source} --output-dir {output_dir} --test-size {test_size}"
