@@ -1,0 +1,9 @@
+python: "3.9"
+build_dependencies:
+  - pip
+dependencies:
+  - mlflow
+  - pandas
+  - numpy
+  - scikit-learn
+  - joblib
